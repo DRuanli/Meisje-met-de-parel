@@ -77,14 +77,6 @@ usage: test.py [-h] [--image IMAGE] [--algorithms {all,rrhc,sa,lbs} [{all,rrhc,s
 - `--log-file`: Path to log file
 - `--no-console-log`: Disable logging to console
 
-## Visualization Examples
-
-### State Space
-![State Space](img/The Starry Night.jpg)
-
-### Algorithm Paths
-![Algorithm Comparison](img/monalisa.jpg)
-
 ## Implementation Details
 
 ### Problem Formulation
