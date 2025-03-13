@@ -70,3 +70,64 @@ class LocalSearchStrategy:
             path.append((current_x, current_y, current_z))
             
         return path
+        
+    def simulated_annealing_search(self, problem, schedule):
+        """
+        Implement the Simulated Annealing Search algorithm.
+        
+        Args:
+            problem: An instance of the Problem class
+            schedule: A function taking a time step t and returning a temperature value
+            
+        Returns:
+            list: A list of tuples (x, y, z) representing the path from the initial
+                  state to the resulting state.
+        """
+        # Get a random starting state
+        current_x, current_y, current_z = problem.random_state()
+        
+        # Initialize path
+        path = [(current_x, current_y, current_z)]
+        
+        # Set initial time step
+        t = 1
+        max_steps = 1000  # Prevent infinite loops
+        
+        # Continue until temperature is very low or max steps reached
+        while t < max_steps:
+            # Get current temperature
+            T = schedule(t)
+            
+            # Check termination condition
+            if T < 0.1:  # Very low temperature
+                break
+            
+            # Get a random neighbor
+            neighbors = problem.get_neighbors(current_x, current_y)
+            if not neighbors:
+                break
+                
+            next_x, next_y, next_z = neighbors[np.random.randint(0, len(neighbors))]
+            
+            # Compute the difference in value (we want to maximize z)
+            delta_e = next_z - current_z
+            
+            # Decide whether to accept the neighbor
+            accept_move = False
+            if delta_e > 0:  # Better state, always accept
+                accept_move = True
+            else:
+                # Accept with probability e^(delta_e / T)
+                p = np.exp(delta_e / T)
+                if np.random.random() < p:
+                    accept_move = True
+            
+            # Update current state if move is accepted
+            if accept_move:
+                current_x, current_y, current_z = next_x, next_y, next_z
+                path.append((current_x, current_y, current_z))
+            
+            # Increment time step
+            t += 1
+        
+        return path
