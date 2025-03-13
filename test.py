@@ -4,7 +4,7 @@ import time
 
 def main():
     print("Loading problem...")
-    problem = Problem('monalisa.jpg')
+    problem = Problem('Meisje met de parel.jpg')
     strategy = LocalSearchStrategy()
     
     # Define parameters for each algorithm
