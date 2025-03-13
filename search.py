@@ -131,3 +131,85 @@ class LocalSearchStrategy:
             t += 1
         
         return path
+        
+    def local_beam_search(self, problem, k):
+        """
+        Implement the Local Beam Search algorithm.
+        
+        Args:
+            problem: An instance of the Problem class
+            k: A positive integer, the maximal number of states maintained
+               at each step of the algorithm
+            
+        Returns:
+            list: A list of tuples (x, y, z) representing the path from the initial
+                  state to the resulting state.
+        """
+        # Generate k random initial states
+        current_states = []
+        for _ in range(k):
+            current_states.append(problem.random_state())
+        
+        # Initialize the best state found
+        best_state = max(current_states, key=lambda s: s[2])
+        
+        # Track paths for all states
+        paths = {}
+        for state in current_states:
+            paths[(state[0], state[1])] = [state]
+        
+        # Set parameters
+        max_iterations = 100
+        iteration = 0
+        
+        while iteration < max_iterations:
+            # Generate all neighbors with their paths
+            all_successors = []
+            
+            for state in current_states:
+                x, y, _ = state
+                current_path = paths[(x, y)]
+                
+                for neighbor in problem.get_neighbors(x, y):
+                    nx, ny, _ = neighbor
+                    
+                    # Create new path for this neighbor
+                    new_path = current_path.copy()
+                    new_path.append(neighbor)
+                    
+                    all_successors.append((neighbor, new_path))
+            
+            if not all_successors:
+                break
+            
+            # Sort by state value (descending)
+            all_successors.sort(key=lambda item: item[0][2], reverse=True)
+            
+            # Select k best successors
+            new_states = []
+            seen = set()  # To avoid duplicates
+            
+            for state, path in all_successors:
+                state_key = (state[0], state[1])
+                if state_key not in seen and len(new_states) < k:
+                    new_states.append(state)
+                    paths[state_key] = path
+                    seen.add(state_key)
+            
+            # If no new states, we're done
+            if not new_states:
+                break
+            
+            # Update best state if we found better
+            new_best = max(new_states, key=lambda s: s[2])
+            if new_best[2] > best_state[2]:
+                best_state = new_best
+            else:
+                # No improvement, we're done
+                break
+            
+            current_states = new_states
+            iteration += 1
+        
+        # Return the path to the best state
+        return paths[(best_state[0], best_state[1])]
