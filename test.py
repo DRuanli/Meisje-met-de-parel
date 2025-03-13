@@ -8,6 +8,9 @@ import os
 import numpy as np
 from datetime import datetime
 import json
+import logging
+import sys
+from logging.handlers import RotatingFileHandler
 
 
 def create_temperature_schedule(initial_temp, cooling_rate):
@@ -32,8 +35,26 @@ def save_results(results, filename):
         results: Dictionary containing results
         filename: Name of the file to save to
     """
-    with open(filename, 'w') as f:
-        json.dump(results, f, indent=4)
+    logger = logging.getLogger("LocalSearch")
+    
+    try:
+        with open(filename, 'w') as f:
+            # Add metadata to results
+            metadata = {
+                "timestamp": datetime.now().isoformat(),
+                "python_version": sys.version,
+            }
+            
+            enhanced_results = {
+                "metadata": metadata,
+                "results": results
+            }
+            
+            json.dump(enhanced_results, f, indent=4)
+        logger.debug(f"Results successfully saved to {filename}")
+    except Exception as e:
+        logger.error(f"Failed to save results to {filename}: {e}")
+        logger.exception("Exception details:")
 
 
 def run_algorithm(problem, strategy, algorithm, params, save_path=False, output_dir=None):
@@ -51,21 +72,55 @@ def run_algorithm(problem, strategy, algorithm, params, save_path=False, output_
     Returns:
         dict: Results including path, execution time, etc.
     """
+    logger = logging.getLogger("LocalSearch")
+    
+    logger.info(f"Running algorithm: {algorithm} with parameters: {params}")
     print(f"\n=== Running {algorithm} ===")
+    
+    # Record start time for performance measurement
     start_time = time.time()
     
-    if algorithm == "random_restart_hill_climbing":
-        path = strategy.random_restart_hill_climbing(problem, params["num_trials"])
-    elif algorithm == "simulated_annealing":
-        schedule = create_temperature_schedule(
-            params["initial_temp"], 
-            params["cooling_rate"]
-        )
-        path = strategy.simulated_annealing_search(problem, schedule)
-    elif algorithm == "local_beam_search":
-        path = strategy.local_beam_search(problem, params["k"])
-    else:
-        raise ValueError(f"Unknown algorithm: {algorithm}")
+    try:
+        # Run the appropriate algorithm
+        if algorithm == "random_restart_hill_climbing":
+            logger.info(f"Starting Random Restart Hill-Climbing with {params['num_trials']} trials")
+            path = strategy.random_restart_hill_climbing(problem, params["num_trials"])
+        elif algorithm == "simulated_annealing":
+            schedule = create_temperature_schedule(
+                params["initial_temp"], 
+                params["cooling_rate"]
+            )
+            logger.info(f"Starting Simulated Annealing with initial temp {params['initial_temp']} and cooling rate {params['cooling_rate']}")
+            path = strategy.simulated_annealing_search(problem, schedule)
+        elif algorithm == "local_beam_search":
+            logger.info(f"Starting Local Beam Search with k={params['k']}")
+            path = strategy.local_beam_search(problem, params["k"])
+        else:
+            error_msg = f"Unknown algorithm: {algorithm}"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+        # Calculate execution time
+        execution_time = time.time() - start_time
+        
+        # Log the results
+        logger.info(f"Algorithm completed in {execution_time:.2f} seconds")
+        logger.info(f"Path length: {len(path)}")
+        logger.info(f"Start state: ({path[0][0]}, {path[0][1]}) with value {path[0][2]}")
+        logger.info(f"End state: ({path[-1][0]}, {path[-1][1]}) with value {path[-1][2]}")
+        
+        if len(path) > 1:
+            # Calculate improvement
+            improvement = path[-1][2] - path[0][2]
+            improvement_percent = (improvement / path[0][2]) * 100 if path[0][2] != 0 else float('inf')
+            logger.info(f"Value improvement: {improvement:.2f} ({improvement_percent:.2f}%)")
+            
+    except Exception as e:
+        logger.error(f"Error executing {algorithm}: {e}")
+        logger.exception("Exception details:")
+        print(f"Error executing {algorithm}: {e}")
+        # Return empty results in case of error
+        return {"results": {"algorithm": algorithm, "error": str(e)}, "path": []}
     
     execution_time = time.time() - start_time
     
@@ -140,6 +195,61 @@ def compare_results(all_results):
               f"{result['results']['path_length']:<12} | {result['results']['execution_time']:<10.2f}")
 
 
+def setup_logger(log_level, log_file=None, console_output=True):
+    """
+    Set up the logger with appropriate handlers and formatting.
+    
+    Args:
+        log_level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+        log_file: Path to log file (if None, no file logging)
+        console_output: Whether to output logs to console
+        
+    Returns:
+        Logger object
+    """
+    # Create logger
+    logger = logging.getLogger("LocalSearch")
+    logger.setLevel(log_level)
+    
+    # Create formatter
+    formatter = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    
+    # Add handlers
+    handlers = []
+    
+    # File handler (if specified)
+    if log_file:
+        # Create logs directory if it doesn't exist
+        log_dir = os.path.dirname(log_file)
+        if log_dir and not os.path.exists(log_dir):
+            os.makedirs(log_dir, exist_ok=True)
+            
+        # Use rotating file handler to prevent huge log files
+        file_handler = RotatingFileHandler(
+            log_file, 
+            maxBytes=10*1024*1024,  # 10MB
+            backupCount=5
+        )
+        file_handler.setFormatter(formatter)
+        handlers.append(file_handler)
+    
+    # Console handler (if specified)
+    if console_output:
+        console_handler = logging.StreamHandler(stream=sys.stdout)
+        console_handler.setFormatter(formatter)
+        handlers.append(console_handler)
+    
+    # Clear existing handlers and add new ones
+    logger.handlers = []
+    for handler in handlers:
+        logger.addHandler(handler)
+    
+    return logger
+
+
 def main():
     # Set up argument parser
     parser = argparse.ArgumentParser(description="Run local search algorithms on an image-based state space.")
@@ -174,6 +284,14 @@ def main():
                         help="Show the state space visualization")
     parser.add_argument("--save-results", action="store_true",
                         help="Save results to JSON file")
+                        
+    # Logging options
+    parser.add_argument("--log-level", type=str, choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+                        default="INFO", help="Set the logging level")
+    parser.add_argument("--log-file", type=str, default=None,
+                        help="Path to log file (default: output_dir/local_search.log)")
+    parser.add_argument("--no-console-log", action="store_true",
+                        help="Disable logging to console")
     
     # Parse arguments
     args = parser.parse_args()
@@ -181,17 +299,39 @@ def main():
     # Create output directory if it doesn't exist
     if args.save_visualizations or args.save_results:
         os.makedirs(args.output_dir, exist_ok=True)
+        
+    # Set up logging
+    log_level = getattr(logging, args.log_level)
+    if args.log_file is None and (args.save_results or args.save_visualizations):
+        args.log_file = os.path.join(args.output_dir, "local_search.log")
+    
+    logger = setup_logger(
+        log_level=log_level,
+        log_file=args.log_file,
+        console_output=not args.no_console_log
+    )
+    
+    logger.info("=" * 80)
+    logger.info("Starting local search algorithm test")
+    logger.info(f"Command-line arguments: {vars(args)}")
+    logger.info("=" * 80)
     
     # Initialize problem and strategy
+    logger.info(f"Loading problem from image: {args.image}")
     print(f"Loading problem from image: {args.image}")
     try:
         problem = Problem(args.image)
+        logger.info(f"Problem loaded successfully. State space dimensions: {problem.width}x{problem.height}")
     except Exception as e:
-        print(f"Error loading image: {e}")
+        error_msg = f"Error loading image: {e}"
+        logger.error(error_msg)
+        logger.exception("Exception details:")
+        print(error_msg)
         print("Please make sure the image file exists and is accessible.")
         return
     
     strategy = LocalSearchStrategy()
+    logger.info("LocalSearchStrategy initialized")
     
     # Determine which algorithms to run
     algorithms_to_run = []
@@ -201,6 +341,8 @@ def main():
         algorithms_to_run.append("simulated_annealing")
     if "all" in args.algorithms or "lbs" in args.algorithms:
         algorithms_to_run.append("local_beam_search")
+    
+    logger.info(f"Algorithms to run: {algorithms_to_run}")
     
     # Initialize parameters for each algorithm
     algorithm_params = {
@@ -215,6 +357,8 @@ def main():
             "k": args.k
         }
     }
+    
+    logger.debug(f"Algorithm parameters: {algorithm_params}")
     
     # Run each algorithm and collect results
     all_results = {}
@@ -239,12 +383,35 @@ def main():
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         results_file = os.path.join(args.output_dir, f"results_{timestamp}.json")
         save_results(result_data, results_file)
+        logger.info(f"Results saved to {results_file}")
         print(f"\nResults saved to {results_file}")
+        
+        # Save algorithm run history
+        history_file = os.path.join(args.output_dir, "search_history.log")
+        try:
+            with open(history_file, 'a') as f:
+                f.write(f"Run at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write(f"Image: {args.image}\n")
+                for alg, result in all_results.items():
+                    if "error" in result["results"]:
+                        f.write(f"{alg}: ERROR - {result['results']['error']}\n")
+                    else:
+                        f.write(f"{alg}: Final value = {result['results']['final_value']}, "
+                               f"Path length = {result['results']['path_length']}, "
+                               f"Time = {result['results']['execution_time']:.2f}s\n")
+                f.write("-" * 80 + "\n")
+            logger.info(f"Run history appended to {history_file}")
+        except Exception as e:
+            logger.error(f"Failed to write to history file: {e}")
     
     # Show state space visualization if requested
     if args.show_state_space:
+        logger.info("Displaying state space visualization")
         print("\nDisplaying state space visualization...")
         problem.show()
+        
+    logger.info("Test script execution completed successfully")
+    print("\nTest completed. Check log file for detailed execution information.")
 
 
 if __name__ == "__main__":
